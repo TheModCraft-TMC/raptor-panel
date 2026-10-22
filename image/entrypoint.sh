@@ -4,6 +4,8 @@ umask 077
 cd /app
 state=/app/var/raptor
 mkdir -p "$state/extensions" "$state/filesystems"
+# PHP-FPM must traverse to extension state; backup directories remain root-only.
+chmod 711 "$state"
 exec 9>"$state/lock"
 flock -n 9 || { echo 'Another panel initialization is running.' >&2; exit 1; }
 [[ -s var/.env ]] || { echo 'Mount the existing panel var/.env with its APP_KEY before starting.' >&2; exit 1; }
@@ -54,6 +56,8 @@ if (isset($site['authentik'])) {
 }
 return $services;
 PHP
+    chmod 644 config/services.php
+    chown -R nginx:nginx "$state/site-config"
   fi
   php artisan down
   php artisan config:clear

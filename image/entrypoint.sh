@@ -42,6 +42,18 @@ if [[ ! -f /app/.raptor-ready ]]; then
   if [[ -d "$state/extensions" ]]; then tar -czf "$backup/extension-data.tar.gz" -C "$state" extensions; fi
   printf '%s\n' "$backup" > "$state/in-progress"
   trap 'echo "Panel initialization failed; snapshot: $backup" >&2' ERR
+  if [[ -f "$state/site-config/services.php" ]]; then
+    mv config/services.php config/services.image.php
+    cat > config/services.php <<'PHP'
+<?php
+$services = require __DIR__ . '/services.image.php';
+$site = require '/app/var/raptor/site-config/services.php';
+if (isset($site['authentik'])) {
+    $services['authentik'] = $site['authentik'];
+}
+return $services;
+PHP
+  fi
   php artisan down
   php artisan config:clear
   php artisan migrate --seed --force

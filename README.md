@@ -23,7 +23,7 @@ Enable Watchtower lifecycle hooks and set:
 labels:
   com.centurylinklabs.watchtower.enable: 'true'
   com.centurylinklabs.watchtower.lifecycle.pre-update: '/bin/bash /opt/raptor/prepare-update.sh'
-  com.centurylinklabs.watchtower.lifecycle.pre-update-timeout: '180'
+  com.centurylinklabs.watchtower.lifecycle.pre-update-timeout: '3'
 ```
 
 Run `prepare-update.sh` before manually recreating a container after changing its installed extensions, too. It records only installed extensions and verifies that their archives exist. Do not use an uninstall pre-update hook.

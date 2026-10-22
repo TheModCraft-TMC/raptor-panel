@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# Watchtower interprets 75 as a request to skip this update.
+trap 'exit 75' ERR
 umask 077
 cd /app
 state=/app/var/raptor
@@ -9,10 +11,10 @@ inventory=.blueprint/extensions/blueprint/private/db/installed_extensions
 if [[ -f "$inventory" ]]; then
   tr '|,' '\n\n' < "$inventory" | sed '/^$/d; /^blueprint$/d' > "$state/extensions.list.tmp"
   while IFS= read -r identifier; do
-    [[ $identifier =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Invalid extension identifier' >&2; exit 1; }
+    [[ $identifier =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Invalid extension identifier' >&2; exit 75; }
     package="/blueprint_extensions/$identifier.blueprint"
     if [[ ! -f "$package" && -f "/app/$identifier.blueprint" ]]; then cp -a "/app/$identifier.blueprint" "$package"; fi
-    [[ -f "$package" ]] || { echo "Missing extension archive: $identifier" >&2; exit 1; }
+    [[ -f "$package" ]] || { echo "Missing extension archive: $identifier" >&2; exit 75; }
     private=".blueprint/extensions/$identifier/private"
     if [[ -d "$private" && ! -L "$private" ]]; then
       mkdir -p "$state/extensions/$identifier"

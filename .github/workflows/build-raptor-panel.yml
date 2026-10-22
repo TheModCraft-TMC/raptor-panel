@@ -62,10 +62,10 @@ jobs:
             docker exec raptor-db healthcheck.sh --connect --innodb_initialized && break || sleep 2
           done
           env_args=(-e DB_HOST=raptor-db -e DB_DATABASE=panel -e DB_USERNAME=panel -e DB_PASSWORD=smoke -e APP_URL=http://localhost -e APP_ENV=production -e APP_DEBUG=false -e CACHE_DRIVER=redis -e SESSION_DRIVER=redis -e QUEUE_CONNECTION=redis -e REDIS_HOST=raptor-redis -e LE_EMAIL=)
-          docker run -d --name raptor-old --network raptor-smoke "${env_args[@]}" -v raptor-smoke-app:/app ghcr.io/pterodactyl/panel:v1.12.3
+          docker run -d --name raptor-old --network raptor-smoke "${env_args[@]}" -v raptor-smoke-app:/app --entrypoint /bin/ash ghcr.io/pterodactyl/panel:v1.12.3 -c 'mkdir -p /app/var; exec /bin/ash .github/docker/entrypoint.sh supervisord -n -c /etc/supervisord.conf'
           ready=false
           for attempt in $(seq 1 120); do
-            if docker exec raptor-old curl -fsS http://127.0.0.1/auth/login >/dev/null 2>&1; then ready=true; break; fi
+            if docker exec raptor-old curl --max-time 5 -fsS http://127.0.0.1/auth/login >/dev/null 2>&1; then ready=true; break; fi
             sleep 2
           done
           if [[ $ready != true ]]; then docker logs raptor-old; exit 1; fi
@@ -76,14 +76,14 @@ jobs:
           docker run -d --name raptor-new --network raptor-smoke "${env_args[@]}" -v "$PWD/test-state/var:/app/var" -v "$PWD/test-state/storage:/app/storage" "$image:1"
           ready=false
           for attempt in $(seq 1 120); do
-            if docker exec raptor-new test -s /app/.raptor-ready && docker exec raptor-new curl -fsS http://127.0.0.1/auth/login >/dev/null 2>&1; then ready=true; break; fi
+            if docker exec raptor-new test -f /app/.raptor-ready && docker exec raptor-new curl --max-time 5 -fsS http://127.0.0.1/auth/login >/dev/null 2>&1; then ready=true; break; fi
             sleep 2
           done
           if [[ $ready != true ]]; then docker logs raptor-new; exit 1; fi
           docker exec raptor-new bash -ceu 'gzip -t /app/var/raptor/backups/*/database.sql.gz; test ! -e /app/var/raptor/in-progress'
           docker restart raptor-new
           sleep 10
-          docker exec raptor-new bash -ceu 'test "$(find /app/var/raptor/backups -name database.sql.gz | wc -l)" -eq 1; curl -fsS http://127.0.0.1/auth/login >/dev/null'
+          docker exec raptor-new bash -ceu 'test "$(find /app/var/raptor/backups -name database.sql.gz | wc -l)" -eq 1; curl --max-time 5 -fsS http://127.0.0.1/auth/login >/dev/null'
       - name: Publish stable 1.x image for Watchtower
         env:
           GH_TOKEN: ${{ github.token }}

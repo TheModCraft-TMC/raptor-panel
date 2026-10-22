@@ -10,3 +10,4 @@ RUN apk add --no-cache util-linux \
 COPY entrypoint.sh prepare-update.sh /opt/raptor/
 RUN chmod 755 /opt/raptor/*.sh
 ENTRYPOINT ["/bin/bash", "/opt/raptor/entrypoint.sh"]
+CMD ["supervisord", "-n", "-c", "/etc/supervisord.conf"]

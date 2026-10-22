@@ -33,7 +33,7 @@ if [[ ! -f /app/.raptor-ready ]]; then
   : "${DB_HOST:?}" "${DB_DATABASE:?}" "${DB_USERNAME:?}" "${DB_PASSWORD:?}"
   backup="$state/backups/$(date -u +%Y%m%dT%H%M%SZ)-$version"
   mkdir -p "$backup"
-  chmod 700 "$state" "$state/backups" "$backup"
+  chmod 700 "$state/backups" "$backup"
   # The old container has stopped, and this one has not started HTTP, cron or queue workers.
   MYSQL_PWD="$DB_PASSWORD" mariadb-dump --host="$DB_HOST" --port="${DB_PORT:-3306}" \
     --user="$DB_USERNAME" --single-transaction --quick --skip-lock-tables --no-tablespaces \

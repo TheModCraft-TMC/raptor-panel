@@ -34,8 +34,19 @@ jobs:
         env:
           PANEL_VERSION: ${{ steps.release.outputs.tag }}
         run: |
-          docker build --pull --build-arg BASE_IMAGE="ghcr.io/blueprintframework/blueprint:$PANEL_VERSION" \
-            --build-arg PANEL_VERSION="$PANEL_VERSION" \
+          docker pull "ghcr.io/blueprintframework/blueprint:$PANEL_VERSION"
+          base=$(docker image inspect "ghcr.io/blueprintframework/blueprint:$PANEL_VERSION" --format '{{index .RepoDigests 0}}')
+          if docker pull "$image:1"; then
+            previous_base=$(docker image inspect "$image:1" --format '{{index .Config.Labels "io.themodcraft.base"}}')
+            previous_revision=$(docker image inspect "$image:1" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+            if [[ $previous_base == "$base" && $previous_revision == "$GITHUB_SHA" ]]; then
+              docker tag "$image:1" "$image:$PANEL_VERSION"
+              echo 'Upstream image and build source are unchanged.'
+              exit 0
+            fi
+          fi
+          docker build --build-arg BASE_IMAGE="$base" --build-arg PANEL_VERSION="$PANEL_VERSION" \
+            --label "io.themodcraft.base=$base" --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             -t "$image:1" -t "$image:$PANEL_VERSION" image
       - name: Verify PHP security configuration and image payload
         run: |
@@ -72,15 +83,21 @@ jobs:
           mkdir -p test-state/var test-state/storage
           docker cp raptor-old:/app/var/.env test-state/var/.env
           docker cp raptor-old:/app/storage/. test-state/storage/
+          mkdir -p test-state/var/raptor/site-config
+          printf '%s\n' '<?php return ["authentik" => ["base_url" => "https://fixture.invalid"]];' > test-state/var/raptor/site-config/services.php
+          sha256sum test-state/var/.env > test-state/key.sha256
           docker stop raptor-old
           docker run -d --name raptor-new --network raptor-smoke "${env_args[@]}" -v "$PWD/test-state/var:/app/var" -v "$PWD/test-state/storage:/app/storage" "$image:1"
           ready=false
           for attempt in $(seq 1 120); do
+            if [[ $(docker inspect raptor-new --format '{{.State.Running}}') != true ]]; then docker logs raptor-new; exit 1; fi
             if docker exec raptor-new test -f /app/.raptor-ready && docker exec raptor-new curl --max-time 5 -fsS http://127.0.0.1/auth/login >/dev/null 2>&1; then ready=true; break; fi
             sleep 2
           done
           if [[ $ready != true ]]; then docker logs raptor-new; exit 1; fi
           docker exec raptor-new bash -ceu 'gzip -t /app/var/raptor/backups/*/database.sql.gz; test ! -e /app/var/raptor/in-progress'
+          sha256sum -c test-state/key.sha256
+          docker exec --user nginx raptor-new php artisan about --only=environment
           docker restart raptor-new
           sleep 10
           docker exec raptor-new bash -ceu 'test "$(find /app/var/raptor/backups -name database.sql.gz | wc -l)" -eq 1; curl --max-time 5 -fsS http://127.0.0.1/auth/login >/dev/null'

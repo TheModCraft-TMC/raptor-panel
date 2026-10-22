@@ -5,7 +5,7 @@ trap 'exit 75' ERR
 umask 077
 cd /app
 state=/app/var/raptor
-mkdir -p "$state/extensions"
+mkdir -p "$state/extensions" "$state/filesystems"
 # Record the installed set before Watchtower replaces this container.
 inventory=.blueprint/extensions/blueprint/private/db/installed_extensions
 if [[ -f "$inventory" ]]; then
@@ -16,9 +16,14 @@ if [[ -f "$inventory" ]]; then
     if [[ ! -f "$package" && -f "/app/$identifier.blueprint" ]]; then cp -a "/app/$identifier.blueprint" "$package"; fi
     [[ -f "$package" ]] || { echo "Missing extension archive: $identifier" >&2; exit 75; }
     private=".blueprint/extensions/$identifier/private"
-    if [[ -d "$private" && ! -L "$private" ]]; then
+    if [[ -d "$private" && $(readlink -f "$private") != $(readlink -f "$state/extensions/$identifier") ]]; then
       mkdir -p "$state/extensions/$identifier"
       cp -a "$private/." "$state/extensions/$identifier/"
+    fi
+    filesystem=".blueprint/extensions/$identifier/fs"
+    if [[ -d "$filesystem" && $(readlink -f "$filesystem") != $(readlink -f "$state/filesystems/$identifier") ]]; then
+      mkdir -p "$state/filesystems/$identifier"
+      cp -a "$filesystem/." "$state/filesystems/$identifier/"
     fi
   done < "$state/extensions.list.tmp"
   mv "$state/extensions.list.tmp" "$state/extensions.list"

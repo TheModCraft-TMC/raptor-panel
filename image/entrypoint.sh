@@ -40,6 +40,7 @@ if [[ ! -f /app/.raptor-ready ]]; then
   cp -aL var/.env "$backup/panel.env"
   if [[ -f "$state/extensions.list" ]]; then cp "$state/extensions.list" "$backup/"; fi
   if [[ -d "$state/extensions" ]]; then tar -czf "$backup/extension-data.tar.gz" -C "$state" extensions; fi
+  if [[ -d "$state/filesystems" ]]; then tar -czf "$backup/extension-filesystems.tar.gz" -C "$state" filesystems; fi
   printf '%s\n' "$backup" > "$state/in-progress"
   trap 'echo "Panel initialization failed; snapshot: $backup" >&2' ERR
   if [[ -f "$state/site-config/services.php" ]]; then
@@ -66,6 +67,13 @@ PHP
       mv "$private" "$private.image"
     fi
     ln -sfn "$state/extensions/$identifier" "$private"
+    filesystem=".blueprint/extensions/$identifier/fs"
+    mkdir -p "$state/filesystems/$identifier"
+    if [[ -d "$filesystem" && ! -L "$filesystem" ]]; then
+      cp -an "$filesystem/." "$state/filesystems/$identifier/"
+      mv "$filesystem" "$filesystem.image"
+    fi
+    ln -sfn "$state/filesystems/$identifier" "$filesystem"
     cp -a "/blueprint_extensions/$identifier.blueprint" "/app/$identifier.blueprint"
   done
   if (( ${#packages[@]} )); then
@@ -80,7 +88,7 @@ PHP
   php artisan view:clear
   php artisan config:clear
   php artisan queue:restart
-  chown -R nginx:nginx /app/storage /app/bootstrap/cache "$state/extensions"
+  chown -R nginx:nginx /app/storage /app/bootstrap/cache "$state/extensions" "$state/filesystems"
   php artisan up
   touch /app/.raptor-ready
   rm -f "$state/in-progress"

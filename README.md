@@ -8,14 +8,14 @@ Image: `ghcr.io/themodcraft-tmc/raptor-panel:1`. The moving `1` tag follows stab
 
 Do **not** mount a volume at `/app`. That hides the new panel code in every replacement image. Persist these paths instead:
 
-- `/app/var`: existing `.env` with the original `APP_KEY`, upgrade metadata, backups, and extension private data.
+- `/app/var`: existing `.env` with the original `APP_KEY`, upgrade metadata, backups, and extension private data and file systems.
 - `/app/storage`: uploads and Laravel storage.
 - `/blueprint_extensions`: original `.blueprint` archives, named by extension identifier.
 - Existing Nginx configuration, TLS certificates and logs as appropriate.
 
 The database remains in its separate database service. Keep the original `APP_KEY`; generating a replacement makes encrypted database values unreadable.
 
-On container creation, the entrypoint verifies extension archives, backs up the database and `.env`, migrates the database and restores recorded extensions against the image's fresh code. Normal container restarts skip completed initialization. Extension private directories point into the persistent var directory.
+On container creation, the entrypoint verifies extension archives, backs up the database and `.env`, migrates the database and restores recorded extensions against the image's fresh code. Normal container restarts skip completed initialization. Extension private directories and file systems point into the persistent var directory.
 
 Enable Watchtower lifecycle hooks and set:
 

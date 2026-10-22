@@ -1,0 +1,93 @@
+name: Build Raptor Panel 1.x
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 3 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'image/**'
+      - '.github/workflows/build-raptor-panel.yml'
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: raptor-panel-image
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest stable Panel 1.x
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh api --paginate 'repos/pterodactyl/panel/releases?per_page=100' --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' | grep -E '^v1\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          test -n "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/raptor-panel" >> "$GITHUB_ENV"
+      - name: Build Blueprint on the patched official Panel image
+        env:
+          PANEL_VERSION: ${{ steps.release.outputs.tag }}
+        run: |
+          docker build --pull --build-arg BASE_IMAGE="ghcr.io/blueprintframework/blueprint:$PANEL_VERSION" \
+            --build-arg PANEL_VERSION="$PANEL_VERSION" \
+            -t "$image:1" -t "$image:$PANEL_VERSION" image
+      - name: Verify PHP security configuration and image payload
+        run: |
+          docker run --rm --entrypoint php "$image:1" -r '
+            if (PHP_MAJOR_VERSION !== 8 || PHP_MINOR_VERSION !== 3 || version_compare(PHP_VERSION, "8.3.36", "<") || ini_get("session.upload_progress.enabled")) { exit(1); }
+            echo "PHP ", PHP_VERSION, "; upload progress disabled", PHP_EOL;
+          '
+          docker run --rm --entrypoint bash "$image:1" -ceu '
+            bash -n /opt/raptor/entrypoint.sh
+            test -s /opt/raptor/version
+            test -f /app/artisan
+            test -f /app/blueprint.sh
+            command -v mariadb-dump
+            command -v rsync
+          '
+      - name: Exercise a real persistent-volume upgrade and restart
+        run: |
+          set -euo pipefail
+          docker network create raptor-smoke
+          docker volume create raptor-smoke-app
+          docker run -d --name raptor-db --network raptor-smoke -e MARIADB_ROOT_PASSWORD=smoke-root -e MARIADB_DATABASE=panel -e MARIADB_USER=panel -e MARIADB_PASSWORD=smoke mariadb:11
+          docker run -d --name raptor-redis --network raptor-smoke redis:7-alpine
+          for attempt in $(seq 1 60); do
+            docker exec raptor-db healthcheck.sh --connect --innodb_initialized && break || sleep 2
+          done
+          env_args=(-e DB_HOST=raptor-db -e DB_DATABASE=panel -e DB_USERNAME=panel -e DB_PASSWORD=smoke -e APP_URL=http://localhost -e APP_ENV=production -e APP_DEBUG=false -e CACHE_DRIVER=redis -e SESSION_DRIVER=redis -e QUEUE_CONNECTION=redis -e REDIS_HOST=raptor-redis -e LE_EMAIL=)
+          docker run -d --name raptor-old --network raptor-smoke "${env_args[@]}" -v raptor-smoke-app:/app ghcr.io/pterodactyl/panel:v1.12.3
+          ready=false
+          for attempt in $(seq 1 120); do
+            if docker exec raptor-old curl -fsS http://127.0.0.1/auth/login >/dev/null 2>&1; then ready=true; break; fi
+            sleep 2
+          done
+          if [[ $ready != true ]]; then docker logs raptor-old; exit 1; fi
+          mkdir -p test-state/var test-state/storage
+          docker cp raptor-old:/app/var/.env test-state/var/.env
+          docker cp raptor-old:/app/storage/. test-state/storage/
+          docker stop raptor-old
+          docker run -d --name raptor-new --network raptor-smoke "${env_args[@]}" -v "$PWD/test-state/var:/app/var" -v "$PWD/test-state/storage:/app/storage" "$image:1"
+          ready=false
+          for attempt in $(seq 1 120); do
+            if docker exec raptor-new test -s /app/.raptor-ready && docker exec raptor-new curl -fsS http://127.0.0.1/auth/login >/dev/null 2>&1; then ready=true; break; fi
+            sleep 2
+          done
+          if [[ $ready != true ]]; then docker logs raptor-new; exit 1; fi
+          docker exec raptor-new bash -ceu 'gzip -t /app/var/raptor/backups/*/database.sql.gz; test ! -e /app/var/raptor/in-progress'
+          docker restart raptor-new
+          sleep 10
+          docker exec raptor-new bash -ceu 'test "$(find /app/var/raptor/backups -name database.sql.gz | wc -l)" -eq 1; curl -fsS http://127.0.0.1/auth/login >/dev/null'
+      - name: Publish stable 1.x image for Watchtower
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$image:${{ steps.release.outputs.tag }}"
+          docker push "$image:1"

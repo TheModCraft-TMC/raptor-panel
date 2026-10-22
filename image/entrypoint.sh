@@ -3,7 +3,7 @@ set -Eeuo pipefail
 umask 077
 cd /app
 state=/app/var/raptor
-mkdir -p "$state"
+mkdir -p "$state/extensions" "$state/filesystems"
 exec 9>"$state/lock"
 flock -n 9 || { echo 'Another panel initialization is running.' >&2; exit 1; }
 [[ -s var/.env ]] || { echo 'Mount the existing panel var/.env with its APP_KEY before starting.' >&2; exit 1; }
